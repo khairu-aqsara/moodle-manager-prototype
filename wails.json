@@ -1,0 +1,40 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "moodle-prototype-manager",
+  "outputfilename": "Moodle Prototype Manager",
+  "frontend": {
+    "dir": "./frontend",
+    "install": "",
+    "build": "",
+    "dev": ""
+  },
+  "backend": {
+    "dir": ".",
+    "install": "go mod tidy",
+    "build": "go build -o build/bin/moodle-prototype-manager .",
+    "test": "go test ./...",
+    "dev": ""
+  },
+  "author": {
+    "name": "Khairu Aqsara",
+    "email": "khairu@teruselearning.co.uk"
+  },
+  "info": {
+    "companyName": "Terus E-learning",
+    "productName": "Moodle Prototype Manager",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright © 2025 Terus E-learning",
+    "comments": "Desktop application for managing Moodle prototype Docker containers"
+  },
+  "nsis": {
+    "webUrl": "https://teruselearning.co.uk"
+  },
+  "nsisType": "multiple",
+  "debianPackage": {
+    "packageName": "moodle-prototype-manager"
+  },
+  "macPackage": {
+    "bundleName": "Moodle Prototype Manager",
+    "packageName": "com.teruselearning.moodle-prototype-manager"
+  }
+}

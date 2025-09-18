@@ -1,0 +1,44 @@
+# Build directories
+build/
+frontend/dist/
+
+# Development files
+*.log
+dev.log
+wails_dev.log
+
+# Container and runtime files
+container.id
+moodle.txt
+
+# Log directories
+logs/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Go specific
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Temporary files
+*.tmp
+*.temp

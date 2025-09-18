@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moodle Prototype Manager</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <!-- Header Section -->
+    <header class="header">
+        <div class="logo-container">
+            <img src="assets/images/moodle-logo.png" alt="Moodle Logo" class="logo" id="moodle-logo" onerror="this.style.display='none'; document.getElementById('logo-fallback').style.display='flex';">
+            <div id="logo-fallback" style="display: none; width: 200px; height: 120px; background: linear-gradient(135deg, #f57c00, #ff9800); color: white; border-radius: 12px; align-items: center; justify-content: center; font-size: 64px; font-weight: bold;">M</div>
+            <h1 class="version-text" id="version-text">Loading...</h1>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+        <!-- Primary Action Button -->
+        <div class="action-container">
+            <button id="run-moodle-btn" class="action-button" disabled>
+                Run Moodle
+            </button>
+        </div>
+
+        <!-- Credentials Display (hidden by default) -->
+        <div id="credentials-display" class="credentials-container" style="display: none;">
+            <h3 class="credentials-title">Moodle Login Details</h3>
+            <table class="credentials-table">
+                <tr>
+                    <td class="label">Username</td>
+                    <td class="value" id="username">admin</td>
+                </tr>
+                <tr>
+                    <td class="label">Password</td>
+                    <td class="value password" id="password">-</td>
+                </tr>
+                <tr>
+                    <td class="label">URL</td>
+                    <td class="value">
+                        <a href="http://localhost:8080" id="url" class="url-link" target="_blank" onclick="handleUrlClick(event)">
+                            http://localhost:8080
+                        </a>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </main>
+
+    <!-- Footer Status Bar -->
+    <footer class="footer">
+        <div class="status-left">
+            <span id="status-text">Checking...</span>
+        </div>
+        <div class="status-right">
+            <div class="status-indicator">
+                <span class="status-circle red" id="docker-status"></span>
+                <span class="status-label">Docker</span>
+            </div>
+            <div class="status-indicator">
+                <span class="status-circle red" id="internet-status"></span>
+                <span class="status-label">Internet</span>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Download Progress Modal -->
+    <div id="download-modal" class="modal" style="display: none;">
+        <div class="modal-content download-modal">
+            <h3>Downloading Moodle Image...</h3>
+            <p class="modal-status" style="text-align: center; color: #666; margin: 10px 0;">Preparing to download...</p>
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="download-progress"></div>
+                </div>
+                <div class="progress-labels">
+                    <span>0%</span>
+                    <span>100%</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Startup Wait Modal -->
+    <div id="startup-modal" class="modal" style="display: none;">
+        <div class="modal-content startup-modal">
+            <div class="loading-spinner"></div>
+            <p>Starting Moodle, please wait...</p>
+        </div>
+    </div>
+
+    <!-- Browser Confirmation Dialog -->
+    <div id="browser-dialog" class="modal" style="display: none;">
+        <div class="modal-content dialog-modal">
+            <h3>Open Browser</h3>
+            <p>Would you like to open Moodle in your browser?</p>
+            <div class="dialog-buttons">
+                <button id="browser-yes" class="dialog-button primary">Yes</button>
+                <button id="browser-no" class="dialog-button secondary">No</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="js/app.js"></script>
+    <script type="module" src="js/ui.js"></script>
+    <script type="module" src="js/events.js"></script>
+</body>
+</html>
