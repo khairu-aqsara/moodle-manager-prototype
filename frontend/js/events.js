@@ -377,26 +377,54 @@ async function stopMoodleContainer() {
     }
 }
 
-// Load credentials from backend
+// Load credentials from backend and check if container is running
 async function loadCredentials() {
     try {
+        // First check if we have stored credentials and if container might be running
         const credentials = await wailsBindings.GetCredentials();
-        AppState.credentials = credentials;
-        
-        // Update UI
-        const passwordElement = document.getElementById('password');
-        const urlElement = document.getElementById('url');
-        
-        if (passwordElement) {
-            passwordElement.textContent = credentials.password || '-';
+
+        // If we have a valid password, it means credentials were saved previously
+        if (credentials && credentials.password && credentials.password !== '') {
+            console.log('Found stored credentials, checking if container is running...');
+
+            // Check if container is actually ready/running
+            try {
+                const isReady = await wailsBindings.IsContainerReady();
+                if (isReady) {
+                    console.log('Container is running, displaying credentials');
+
+                    // Update app state
+                    AppState.containerRunning = true;
+                    AppState.credentials = credentials;
+
+                    // Update button to stop mode
+                    const runButton = document.getElementById('run-moodle-btn');
+                    if (runButton) {
+                        runButton.textContent = 'Stop Moodle';
+                        runButton.classList.add('stop');
+                        runButton.disabled = false;
+                    }
+
+                    // Display credentials using the proper function
+                    displayCredentials(credentials);
+                    updateStatusText('Container running - Moodle is ready!');
+                } else {
+                    console.log('Stored credentials found but container is not running');
+                    // Container is not running, clear the stored credentials or keep for next run
+                    updateStatusText('Ready to run Moodle');
+                }
+            } catch (readyError) {
+                console.error('Failed to check container readiness:', readyError);
+                updateStatusText('Ready to run Moodle');
+            }
+        } else {
+            console.log('No stored credentials found');
+            updateStatusText('Ready to run Moodle');
         }
-        
-        if (urlElement) {
-            urlElement.textContent = credentials.url || 'http://localhost:8080';
-        }
-        
+
     } catch (error) {
         console.error('Failed to load credentials:', error);
+        updateStatusText('Ready to run Moodle');
     }
 }
 
@@ -430,18 +458,24 @@ async function loadImageName() {
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize Wails bindings
     initializeWailsBindings();
-    
+
     // Load and display image name
     setTimeout(async function() {
         console.log('Attempting to load image name...');
         await loadImageName();
     }, 500);
-    
+
     // Perform initial health checks
     setTimeout(performHealthChecks, 1000);
-    
+
     // Load credentials if container is already running
     setTimeout(loadCredentials, 1500);
+
+    // Add event listener for copy password button
+    const copyPasswordBtn = document.getElementById('copy-password-btn');
+    if (copyPasswordBtn) {
+        copyPasswordBtn.addEventListener('click', handleCopyPassword);
+    }
 });
 
 // Handle keyboard shortcuts
@@ -483,7 +517,7 @@ setInterval(function() {
 // Handle browser opening
 async function handleBrowserYes() {
     hideBrowserDialog();
-    
+
     try {
         await wailsBindings.OpenBrowser();
         showNotification('Opening browser...', 'success');
@@ -493,11 +527,68 @@ async function handleBrowserYes() {
     }
 }
 
+// Handle copy password functionality
+async function handleCopyPassword() {
+    const passwordElement = document.getElementById('password');
+    const copyButton = document.getElementById('copy-password-btn');
+
+    if (!passwordElement || !copyButton) {
+        console.error('Password element or copy button not found');
+        return;
+    }
+
+    const password = passwordElement.textContent;
+
+    if (!password || password === '-') {
+        showNotification('No password available to copy', 'error');
+        return;
+    }
+
+    try {
+        // Use the Clipboard API if available
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(password);
+        } else {
+            // Fallback for older browsers or non-secure contexts
+            const textArea = document.createElement('textarea');
+            textArea.value = password;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            textArea.style.top = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+        }
+
+        // Visual feedback
+        const originalText = copyButton.innerHTML;
+        const originalClass = copyButton.className;
+
+        copyButton.innerHTML = '✓';
+        copyButton.classList.add('copied');
+
+        // Reset after 2 seconds
+        setTimeout(() => {
+            copyButton.innerHTML = originalText;
+            copyButton.className = originalClass;
+        }, 2000);
+
+        showNotification('Password copied to clipboard!', 'success');
+
+    } catch (error) {
+        console.error('Failed to copy password:', error);
+        showNotification('Failed to copy password', 'error');
+    }
+}
+
 // Export functions for global access
 window.performHealthChecks = performHealthChecks;
 window.startMoodleContainer = startMoodleContainer;
 window.stopMoodleContainer = stopMoodleContainer;
 window.handleBrowserYes = handleBrowserYes;
+window.handleCopyPassword = handleCopyPassword;
 
 // Also export as modules
-export { performHealthChecks, startMoodleContainer, stopMoodleContainer, handleBrowserYes };
+export { performHealthChecks, startMoodleContainer, stopMoodleContainer, handleBrowserYes, handleCopyPassword };

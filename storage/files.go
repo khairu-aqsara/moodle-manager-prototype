@@ -22,8 +22,9 @@ func NewFileManager() *FileManager {
 }
 
 // getBaseDir returns the appropriate base directory for file operations
-// In production, files should be next to the executable
-// In development, files are in the working directory
+// Strategy:
+// 1. Development mode (go.mod found): Use working/executable directory
+// 2. Production mode: Use ~/.moodle-prototype-manager for easy team sharing
 func (fm *FileManager) getBaseDir() string {
 	var baseDir string
 
@@ -37,24 +38,28 @@ func (fm *FileManager) getBaseDir() string {
 		}
 	}
 
-	// Try to get executable directory (for production builds)
+	// Try to get executable directory and check for go.mod there too
 	if executable, err := os.Executable(); err == nil {
 		execDir := filepath.Dir(executable)
-		// Check if we're in a development environment by looking for go.mod in exec dir
 		if _, err := os.Stat(filepath.Join(execDir, "go.mod")); err == nil {
-			// Development environment - but go.mod is in exec dir, use that
+			// Development environment - go.mod is in exec dir, use that
 			baseDir = execDir
 			fmt.Printf("[DEBUG] getBaseDir: Development mode (go.mod in exec dir), using: %s\n", baseDir)
-		} else {
-			// Production environment - use executable directory
-			baseDir = execDir
-			fmt.Printf("[DEBUG] getBaseDir: Production mode, using exec dir: %s\n", baseDir)
+			return baseDir
 		}
-	} else {
+	}
+
+	// Production environment - use ~/.moodle-prototype-manager
+	baseDir = fm.getUserDataDir()
+	fmt.Printf("[DEBUG] getBaseDir: Production mode, using user data dir: %s\n", baseDir)
+
+	// Ensure directory exists
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		fmt.Printf("[ERROR] getBaseDir: Failed to create user data directory %s: %v\n", baseDir, err)
 		// Fallback to working directory
 		if wd, err := os.Getwd(); err == nil {
 			baseDir = wd
-			fmt.Printf("[DEBUG] getBaseDir: Failed to get executable, using working dir: %s\n", baseDir)
+			fmt.Printf("[DEBUG] getBaseDir: Falling back to working dir: %s\n", baseDir)
 		} else {
 			// Last resort - current directory
 			baseDir = "."
@@ -65,6 +70,23 @@ func (fm *FileManager) getBaseDir() string {
 	return baseDir
 }
 
+// getUserDataDir returns the user data directory
+// Uses ~/.moodle-prototype-manager for all platforms for consistency and easy team sharing
+func (fm *FileManager) getUserDataDir() string {
+	appName := ".moodle-prototype-manager"
+
+	// Use ~/.moodle-prototype-manager for all platforms
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, appName)
+	}
+
+	// Fallback to current directory if home directory cannot be determined
+	if wd, err := os.Getwd(); err == nil {
+		return wd
+	}
+	return "."
+}
+
 // getFilePath returns the full path for a given filename
 func (fm *FileManager) getFilePath(filename string) string {
 	return filepath.Join(fm.getBaseDir(), filename)
@@ -72,17 +94,33 @@ func (fm *FileManager) getFilePath(filename string) string {
 
 // SaveContainerID saves the container ID to file
 func (fm *FileManager) SaveContainerID(containerID string) error {
-	return os.WriteFile(fm.getFilePath(ContainerIDFile), []byte(containerID), 0644)
+	filePath := fm.getFilePath(ContainerIDFile)
+	fmt.Printf("[DEBUG] SaveContainerID: Writing to %s\n", filePath)
+
+	err := os.WriteFile(filePath, []byte(containerID), 0644)
+	if err != nil {
+		fmt.Printf("[ERROR] SaveContainerID: Failed to write to %s: %v\n", filePath, err)
+		return err
+	}
+
+	fmt.Printf("[DEBUG] SaveContainerID: Successfully wrote container ID to %s\n", filePath)
+	return nil
 }
 
 // LoadContainerID loads the container ID from file
 func (fm *FileManager) LoadContainerID() (string, error) {
-	data, err := os.ReadFile(fm.getFilePath(ContainerIDFile))
+	filePath := fm.getFilePath(ContainerIDFile)
+	fmt.Printf("[DEBUG] LoadContainerID: Reading from %s\n", filePath)
+
+	data, err := os.ReadFile(filePath)
 	if err != nil {
+		fmt.Printf("[ERROR] LoadContainerID: Failed to read from %s: %v\n", filePath, err)
 		return "", err
 	}
-	
-	return strings.TrimSpace(string(data)), nil
+
+	containerID := strings.TrimSpace(string(data))
+	fmt.Printf("[DEBUG] LoadContainerID: Successfully loaded container ID from %s\n", filePath)
+	return containerID, nil
 }
 
 // ContainerIDExists checks if container ID file exists
@@ -93,26 +131,40 @@ func (fm *FileManager) ContainerIDExists() bool {
 
 // SaveCredentials saves credentials to file in key=value format
 func (fm *FileManager) SaveCredentials(password, url string) error {
+	filePath := fm.getFilePath(CredentialsFile)
+	fmt.Printf("[DEBUG] SaveCredentials: Writing to %s\n", filePath)
+
 	content := fmt.Sprintf("password=%s\nurl=%s\n", password, url)
-	return os.WriteFile(fm.getFilePath(CredentialsFile), []byte(content), 0644)
+	err := os.WriteFile(filePath, []byte(content), 0644)
+	if err != nil {
+		fmt.Printf("[ERROR] SaveCredentials: Failed to write to %s: %v\n", filePath, err)
+		return err
+	}
+
+	fmt.Printf("[DEBUG] SaveCredentials: Successfully wrote credentials to %s\n", filePath)
+	return nil
 }
 
 // LoadCredentials loads credentials from file
 func (fm *FileManager) LoadCredentials() (map[string]string, error) {
-	data, err := os.ReadFile(fm.getFilePath(CredentialsFile))
+	filePath := fm.getFilePath(CredentialsFile)
+	fmt.Printf("[DEBUG] LoadCredentials: Reading from %s\n", filePath)
+
+	data, err := os.ReadFile(filePath)
 	if err != nil {
+		fmt.Printf("[ERROR] LoadCredentials: Failed to read from %s: %v\n", filePath, err)
 		return nil, err
 	}
-	
+
 	credentials := make(map[string]string)
 	lines := strings.Split(string(data), "\n")
-	
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		
+
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) == 2 {
 			key := strings.TrimSpace(parts[0])
@@ -120,7 +172,8 @@ func (fm *FileManager) LoadCredentials() (map[string]string, error) {
 			credentials[key] = value
 		}
 	}
-	
+
+	fmt.Printf("[DEBUG] LoadCredentials: Successfully loaded credentials from %s\n", filePath)
 	return credentials, nil
 }
 
@@ -150,9 +203,9 @@ func (fm *FileManager) DeleteCredentials() error {
 func (fm *FileManager) LoadImageName() (string, error) {
 	// Try multiple potential paths for the image configuration file
 	searchPaths := []string{
-		fm.getFilePath(ImageConfigFile),                    // Primary path (working or exec dir)
-		filepath.Join(".", ImageConfigFile),                // Current directory
-		filepath.Join("..", ImageConfigFile),               // Parent directory
+		fm.getFilePath(ImageConfigFile),      // Primary path (working or exec dir)
+		filepath.Join(".", ImageConfigFile),  // Current directory
+		filepath.Join("..", ImageConfigFile), // Parent directory
 	}
 
 	// If we can get working directory, also try that explicitly
@@ -201,18 +254,18 @@ func (fm *FileManager) ImageConfigExists() bool {
 // CleanupFiles removes all storage files
 func (fm *FileManager) CleanupFiles() error {
 	var errors []string
-	
+
 	if err := fm.DeleteContainerID(); err != nil {
 		errors = append(errors, fmt.Sprintf("container ID: %v", err))
 	}
-	
+
 	if err := fm.DeleteCredentials(); err != nil {
 		errors = append(errors, fmt.Sprintf("credentials: %v", err))
 	}
-	
+
 	if len(errors) > 0 {
 		return fmt.Errorf("cleanup errors: %s", strings.Join(errors, ", "))
 	}
-	
+
 	return nil
 }

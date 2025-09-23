@@ -160,8 +160,50 @@ body {
     background: white;
 }
 
-.credentials-table td.value.password {
+.credentials-table td.value.password-container {
     font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.credentials-table .password {
+    flex: 1;
+    font-family: monospace;
+}
+
+.copy-button {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    width: 24px;
+    height: 20px;
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    padding: 0;
+    line-height: 1;
+}
+
+.copy-button:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+    transform: translateY(-1px);
+}
+
+.copy-button:active {
+    background: #dee2e6;
+    transform: translateY(0);
+}
+
+.copy-button.copied {
+    background: #d4edda;
+    border-color: #c3e6cb;
+    color: #155724;
 }
 
 .url-link {
