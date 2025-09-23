@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"moodle-prototype-manager/errors"
 )
 
 const (
@@ -92,15 +94,48 @@ func (fm *FileManager) getFilePath(filename string) string {
 	return filepath.Join(fm.getBaseDir(), filename)
 }
 
+// ensureDirectoryExists creates the directory if it doesn't exist
+func (fm *FileManager) ensureDirectoryExists(dirPath string) error {
+	if dirPath == "" {
+		return errors.NewValidationError("dirPath", "directory path cannot be empty", dirPath)
+	}
+
+	// Check if directory already exists
+	if info, err := os.Stat(dirPath); err == nil {
+		if !info.IsDir() {
+			return errors.NewFileError("validate", dirPath, fmt.Errorf("path exists but is not a directory"))
+		}
+		return nil // Directory already exists
+	}
+
+	// Create directory with proper permissions
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		return errors.NewFileError("create", dirPath, err)
+	}
+
+	fmt.Printf("[DEBUG] ensureDirectoryExists: Created directory %s\n", dirPath)
+	return nil
+}
+
 // SaveContainerID saves the container ID to file
 func (fm *FileManager) SaveContainerID(containerID string) error {
+	// Validate input
+	if err := errors.ValidateContainerID(containerID); err != nil {
+		return errors.WrapWithContext(err, "invalid container ID provided to SaveContainerID")
+	}
+
 	filePath := fm.getFilePath(ContainerIDFile)
 	fmt.Printf("[DEBUG] SaveContainerID: Writing to %s\n", filePath)
+
+	// Ensure directory exists
+	if err := fm.ensureDirectoryExists(filepath.Dir(filePath)); err != nil {
+		return errors.WrapWithContext(err, "failed to ensure directory exists for container ID file")
+	}
 
 	err := os.WriteFile(filePath, []byte(containerID), 0644)
 	if err != nil {
 		fmt.Printf("[ERROR] SaveContainerID: Failed to write to %s: %v\n", filePath, err)
-		return err
+		return errors.NewFileError("write", filePath, err)
 	}
 
 	fmt.Printf("[DEBUG] SaveContainerID: Successfully wrote container ID to %s\n", filePath)
@@ -115,10 +150,19 @@ func (fm *FileManager) LoadContainerID() (string, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		fmt.Printf("[ERROR] LoadContainerID: Failed to read from %s: %v\n", filePath, err)
-		return "", err
+		return "", errors.NewFileError("read", filePath, err)
 	}
 
 	containerID := strings.TrimSpace(string(data))
+	if containerID == "" {
+		return "", errors.NewFileError("parse", filePath, errors.ErrFileCorrupted)
+	}
+
+	// Validate the loaded container ID
+	if err := errors.ValidateContainerID(containerID); err != nil {
+		return "", errors.WrapWithContext(err, "loaded container ID from file %s is invalid", filePath)
+	}
+
 	fmt.Printf("[DEBUG] LoadContainerID: Successfully loaded container ID from %s\n", filePath)
 	return containerID, nil
 }
@@ -131,14 +175,27 @@ func (fm *FileManager) ContainerIDExists() bool {
 
 // SaveCredentials saves credentials to file in key=value format
 func (fm *FileManager) SaveCredentials(password, url string) error {
+	// Validate input
+	if err := errors.ValidateNotEmpty("password", password); err != nil {
+		return errors.WrapWithContext(err, "invalid password provided to SaveCredentials")
+	}
+	if err := errors.ValidateNotEmpty("url", url); err != nil {
+		return errors.WrapWithContext(err, "invalid URL provided to SaveCredentials")
+	}
+
 	filePath := fm.getFilePath(CredentialsFile)
 	fmt.Printf("[DEBUG] SaveCredentials: Writing to %s\n", filePath)
+
+	// Ensure directory exists
+	if err := fm.ensureDirectoryExists(filepath.Dir(filePath)); err != nil {
+		return errors.WrapWithContext(err, "failed to ensure directory exists for credentials file")
+	}
 
 	content := fmt.Sprintf("password=%s\nurl=%s\n", password, url)
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	if err != nil {
 		fmt.Printf("[ERROR] SaveCredentials: Failed to write to %s: %v\n", filePath, err)
-		return err
+		return errors.NewFileError("write", filePath, err)
 	}
 
 	fmt.Printf("[DEBUG] SaveCredentials: Successfully wrote credentials to %s\n", filePath)
@@ -153,27 +210,45 @@ func (fm *FileManager) LoadCredentials() (map[string]string, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		fmt.Printf("[ERROR] LoadCredentials: Failed to read from %s: %v\n", filePath, err)
-		return nil, err
+		return nil, errors.NewFileError("read", filePath, err)
+	}
+
+	if len(data) == 0 {
+		return nil, errors.NewFileError("parse", filePath, errors.ErrFileCorrupted)
 	}
 
 	credentials := make(map[string]string)
 	lines := strings.Split(string(data), "\n")
+	validLineCount := 0
 
-	for _, line := range lines {
+	for lineNum, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 
 		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 {
-			key := strings.TrimSpace(parts[0])
-			value := strings.TrimSpace(parts[1])
-			credentials[key] = value
+		if len(parts) != 2 {
+			fmt.Printf("[WARNING] LoadCredentials: Skipping malformed line %d in %s: %s\n", lineNum+1, filePath, line)
+			continue
 		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		if key == "" {
+			fmt.Printf("[WARNING] LoadCredentials: Skipping line %d with empty key in %s\n", lineNum+1, filePath)
+			continue
+		}
+
+		credentials[key] = value
+		validLineCount++
 	}
 
-	fmt.Printf("[DEBUG] LoadCredentials: Successfully loaded credentials from %s\n", filePath)
+	if validLineCount == 0 {
+		return nil, errors.WrapWithContext(errors.ErrFileCorrupted, "no valid credential entries found in file %s", filePath)
+	}
+
+	fmt.Printf("[DEBUG] LoadCredentials: Successfully loaded %d credential entries from %s\n", validLineCount, filePath)
 	return credentials, nil
 }
 
@@ -185,16 +260,30 @@ func (fm *FileManager) CredentialsExist() bool {
 
 // DeleteContainerID removes the container ID file
 func (fm *FileManager) DeleteContainerID() error {
-	if fm.ContainerIDExists() {
-		return os.Remove(fm.getFilePath(ContainerIDFile))
+	filePath := fm.getFilePath(ContainerIDFile)
+	if !fm.ContainerIDExists() {
+		// File doesn't exist, nothing to delete
+		return nil
+	}
+
+	err := os.Remove(filePath)
+	if err != nil {
+		return errors.NewFileError("delete", filePath, err)
 	}
 	return nil
 }
 
 // DeleteCredentials removes the credentials file
 func (fm *FileManager) DeleteCredentials() error {
-	if fm.CredentialsExist() {
-		return os.Remove(fm.getFilePath(CredentialsFile))
+	filePath := fm.getFilePath(CredentialsFile)
+	if !fm.CredentialsExist() {
+		// File doesn't exist, nothing to delete
+		return nil
+	}
+
+	err := os.Remove(filePath)
+	if err != nil {
+		return errors.NewFileError("delete", filePath, err)
 	}
 	return nil
 }
@@ -233,7 +322,14 @@ func (fm *FileManager) LoadImageName() (string, error) {
 		imageName := strings.TrimSpace(string(data))
 		if imageName == "" {
 			fmt.Printf("[DEBUG] LoadImageName attempt %d: file is empty at %s\n", i+1, imagePath)
-			lastErr = fmt.Errorf("image configuration file is empty")
+			lastErr = errors.NewFileError("parse", imagePath, errors.ErrConfigInvalid)
+			continue
+		}
+
+		// Validate image name format
+		if err := errors.ValidateImageName(imageName); err != nil {
+			fmt.Printf("[DEBUG] LoadImageName attempt %d: invalid image name in %s: %v\n", i+1, imagePath, err)
+			lastErr = errors.WrapWithContext(err, "image name in file %s is invalid", imagePath)
 			continue
 		}
 
@@ -242,7 +338,7 @@ func (fm *FileManager) LoadImageName() (string, error) {
 	}
 
 	// If we get here, all paths failed
-	return "", fmt.Errorf("failed to find image configuration file in any of the searched paths (tried %d locations), last error: %w", len(searchPaths), lastErr)
+	return "", errors.WrapWithContext(lastErr, "failed to find image configuration file in any of %d searched paths", len(searchPaths))
 }
 
 // ImageConfigExists checks if image configuration file exists
@@ -253,19 +349,15 @@ func (fm *FileManager) ImageConfigExists() bool {
 
 // CleanupFiles removes all storage files
 func (fm *FileManager) CleanupFiles() error {
-	var errors []string
+	multiErr := errors.NewMultiError("file cleanup operation")
 
 	if err := fm.DeleteContainerID(); err != nil {
-		errors = append(errors, fmt.Sprintf("container ID: %v", err))
+		multiErr.Add(errors.WrapWithContext(err, "failed to delete container ID file"))
 	}
 
 	if err := fm.DeleteCredentials(); err != nil {
-		errors = append(errors, fmt.Sprintf("credentials: %v", err))
+		multiErr.Add(errors.WrapWithContext(err, "failed to delete credentials file"))
 	}
 
-	if len(errors) > 0 {
-		return fmt.Errorf("cleanup errors: %s", strings.Join(errors, ", "))
-	}
-
-	return nil
+	return multiErr.ToError()
 }

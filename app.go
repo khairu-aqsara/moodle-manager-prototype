@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"moodle-prototype-manager/docker"
+	"moodle-prototype-manager/errors"
 	"moodle-prototype-manager/storage"
 	"moodle-prototype-manager/utils"
 
@@ -181,7 +182,7 @@ func (a *App) RunMoodle() error {
 		// Use PullImageWithProgress to track download progress
 		err := a.dockerManager.PullImageWithProgress(func(percentage float64, status string) {
 			// Emit progress event to frontend
-			progressData := map[string]interface{}{
+			progressData := map[string]any{
 				"percentage": percentage,
 				"status":     status,
 			}
@@ -285,11 +286,26 @@ func (a *App) StopMoodle() error {
 }
 
 // GetCredentials retrieves stored Moodle credentials
+// This function maintains compatibility with frontend while improving error handling
 func (a *App) GetCredentials() map[string]string {
 	creds, err := a.credentialManager.Load()
 	if err != nil {
-		// Return default credentials if loading fails
+		// Log the error with proper context instead of silent failure
+		loadErr := errors.WrapWithContext(err, "failed to retrieve stored credentials")
+		utils.LogError("Failed to load credentials", loadErr)
+
+		// Return default credentials but log the fallback
+		utils.LogWarning("Returning default credentials due to load failure")
 		return storage.DefaultCredentials().ToMap()
+	}
+
+	// Validate credentials before returning
+	if !creds.IsValid() {
+		validationErr := errors.NewValidationError("credentials", "loaded credentials are incomplete or invalid", creds)
+		utils.LogError("Loaded credentials are invalid", validationErr)
+
+		// Return what we have but log the validation issue
+		utils.LogWarning("Returning potentially incomplete credentials due to validation failure")
 	}
 
 	return creds.ToMap()
@@ -347,7 +363,7 @@ func (a *App) OpenBrowser() error {
 }
 
 // waitForContainerAndExtractCredentialsSince waits for container startup and extracts credentials
-func (a *App) waitForContainerAndExtractCredentialsSince(containerID string, since time.Time) {
+func (a *App) waitForContainerAndExtractCredentialsSince(containerID string, _ time.Time) {
 	utils.LogInfo("Starting to wait for container and extract credentials")
 	start := time.Now()
 
@@ -364,7 +380,8 @@ func (a *App) waitForContainerAndExtractCredentialsSince(containerID string, sin
 				utils.LogInfo("Container is ready - Moodle is responding on HTTP")
 				// Use existing password with default URL
 				if err := a.credentialManager.Update(existingCreds.Password, "http://localhost:8080"); err != nil {
-					utils.LogError("Failed to update credentials", err)
+					updateErr := errors.WrapWithContext(err, "failed to update credentials during container ready check")
+					utils.LogError("Failed to update credentials", updateErr)
 					return
 				}
 				utils.LogInfo("Updated credentials with existing password")
@@ -375,7 +392,8 @@ func (a *App) waitForContainerAndExtractCredentialsSince(containerID string, sin
 			time.Sleep(2 * time.Second)
 		}
 
-		utils.LogError("Timeout waiting for Moodle HTTP response", nil)
+		timeoutErr := errors.NewNetworkError("timeout", fmt.Errorf("timeout waiting for Moodle HTTP response after %v", subsequentTimeout))
+		utils.LogError("Timeout waiting for Moodle HTTP response", timeoutErr)
 		return
 	}
 
@@ -413,7 +431,8 @@ func (a *App) waitForContainerAndExtractCredentialsSince(containerID string, sin
 
 		if creds.IsComplete() {
 			if err := a.credentialManager.Update(creds.Password, creds.URL); err != nil {
-				utils.LogError("Failed to save credentials", err)
+				saveErr := errors.WrapWithContext(err, "failed to save extracted credentials (password: %s, url: %s)", maskPassword(creds.Password), creds.URL)
+				utils.LogError("Failed to save credentials", saveErr)
 				// Continue trying to extract and save credentials
 				time.Sleep(2 * time.Second)
 				continue
